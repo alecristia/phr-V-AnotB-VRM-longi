@@ -1,0 +1,255 @@
+---
+title: Prediction of toddler vocabulary from infant speech and nonspeech processing
+  tasks
+author: "Yuanyuan Wang and Alejandrina Cristia"
+date: "6 October 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Hello Yuanyuan!
+You can make changes to this Rmd file, and click on the "knit HTML" button you'll see at the top of your Rstudio script window to regenerate the whole thing. Or alternatively, if you want to go step by step or debug, you can also select a block of code (the stuff between ```) and do apple+Enter to run it - just as before. I hope this system makes all decisions etc clearer!
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Preliminary
+
+
+```{r startup, echo=FALSE}
+library(xlsx) #used for reading in
+library(lattice) #used for splom
+library(car) #used for outlier test
+library(gvlma) #used for model test
+
+zscore<-function(x) (x - mean(x,na.rm=T))/ sd(x,na.rm=T)
+
+setwd("/Users/yuanyuanwang/Google Drive/OSU/P8_Longitudinal")
+read.xlsx("data/Longitudinal_8_22_16.xlsx",1)->data # read in the data
+#read.xlsx("Longitudinal_8_22_16.xlsx",1)->data # read in the data
+
+#check that everything looks OK
+names(data)
+dim(data)
+summary(data)
+
+
+#clean up
+data$Subject.. <- factor(data$Subject..)
+data$ A.not.B.score  <- factor(data$ A.not.B.score )
+data[!is.na(data$Subject..), ] -> data #97 observations
+data[, -29] -> data
+
+
+##there is an outlier in age CDI 24, it has been checked, it is his/her real CDI age 
+#after discussion, we decide to remove the data from  this outlier child from the 24m analysis
+data[data$X24mCDIAge>26 & !is.na(data$X24mCDIAge), c("X24mCDIAge","X24mCom","X24msay" , "X24mSayALL","X24mSayGenderSpec")] <- NA
+
+
+
+```
+We intend to use something like a linear regression. The general hunch is that infant measures might predict vocabulary outcomes. 4 infant measures were gathered, which are thought to be conceptually separable. CDIs were collected at 18 and 24 months. Thus, we have number of words spoken & understood x 2 ages. Additionally, there exist tables to estimate children's percentile with respect to a population matched in age and sex for both compr & prod at 18m, and prod at 24m.
+
+We discussed at length whether we could reduce these measures in a sensible way; my first instinct was to combine them all into a single analysis, declaring age x production in addition to the planned predictors, and using the percentiles to control for age and gender variation, although a case could be for using the raw versions to keep close to the original data.
+
+Yuanyuan raised a number of considerations regarding the distributions of different variables and their predictiveness in other studies, but after several discussions, we did not find a convincing solution. In what follows, I show the basic checks necessary for different models; I then end by suggesting that we go with the original proposal, with the caveat that some assumptions for our model are not well met.
+
+The basic tests necessary for this type of model involves: 
+*  checking univariate distributions - detect outliers & handle them (options: remove, correct, do nothing)
+*  checking bivariate distributions - detect non-uniformity of variance, non-linear relationships,  collinearity among predictors
+*  checking that the residuals of models are normally distributed
+```{r iniset, echo=F}
+#outcomes: 
+outcomes = c("X18mCom",'X18mComGenderSpec', "X18mSay",'X18mSayGenderSpec',"X24mCom","X24msay", 'X24mSayGenderSpec')
+#predictions: 
+predictors = c("total.tro.pref.quotient", "Vowel.Alt.pref.quotient", "Novelty.VRM")
+# "A.not.B.score" is categorical
+
+stdat=cbind( data[,c("Subject..","total.tro.pref.quotient", "Vowel.Alt.pref.quotient",
+                     "Novelty.VRM", "A.not.B.score")], stack(data[,outcomes]))
+#View(stdat)
+#upon preliminar inspection of histograms, we wonder whether it might not be appropriate to z-score raw scores before combining them (but isn't this very much like taking the percentiles??)
+data$com18z=zscore(data$X18mCom)
+data$com24z=zscore(data$X24mCom)
+data$say18z=zscore(data$X18mSay)
+data$say24z=zscore(data$X24msay)
+
+stdatz=cbind( data[,c("Subject..","Gender","total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM","A.not.B.score")], stack(data[,c("com18z","com24z","say18z","say24z")]))
+#View(stdatz)
+
+```
+
+## Checking univariate distributions
+<span style="color:red">I've been working with Derek on another project involving 18m CDI. Similarly, we found a floor effect for 18m CDI expression; 18m CDI comprehension is also not normal. I'm wondering whether other people had the same problem; however, I'm surprised that, at least for some papers that I read, they did not mention or address this non-normality issues at all. I agree with you that the combine raw+z showed best univairate distribution! </span>
+
+```{r checkuni,echo=T}
+
+table(data$A.not.B.score)
+
+#outcomes
+for(thisvar in predictors) hist(data[,thisvar],main=thisvar)
+
+#outcomes - separated
+for(thisvar in outcomes) hist(data[,thisvar],main=thisvar)
+
+#outcomes - combined - percentiles
+hist(stdat$values[stdat$ind %in% c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec')],main="Combined-percentiles")
+
+#outcomes - combined - raw
+hist(stdat$values[!(stdat$ind %in% c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec'))],main="Combined-raw")
+
+#outcomes - combined - raw+Z
+hist(stdatz$values,main="Combined-raw+Z")
+
+
+# find outliers for each variable
+for(thisvar in c(outcomes,predictors)) {
+  #create a z-score for the observations
+  z = (data[,thisvar] - mean(data[,thisvar], na.rm=T) )/ sd(data[,thisvar], na.rm=T)
+  print(paste("there are",sum(abs(z)> 3, na.rm=T),"observations that are outliers 
+          at 3 SD in", thisvar))
+} 
+
+table(abs(stdatz$values)>3)
+```
+
+## Checking bivariate distributions
+<span style="color:red">I added 
+1. bivariate distributions for Raw+z because I wanted to check if they are correlated; if not, we may not want to use combined score; inspection of the corrleations seemed to me that they are correlated. 2. I Checked com18z, say18z, com24z, say24z for A-not-B. Most importantly, I also checked the combined raw+z score for A-not-B. This seemed better than the distribution of combined without z-scoring for A-not-B; although note that there is an outlier in group 1; there might be one outlier in group 3. In sum, together with the univariate distribution checking, I agree that using combined raw+z may be the best choice</span>
+
+```{r checkbi,echo=T}
+splom(data[,c("total.tro.pref.quotient", "Vowel.Alt.pref.quotient", "Novelty.VRM")]) #we notice weak correl bet the 2 ling measures, potentially outliers in novelty 
+
+splom(data[,c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec')], main="Percentiles") 
+
+splom(data[,c('X18mCom', 'X18mSay', 'X24mCom', 'X24msay')], main="Raw") 
+
+splom(data[,c('com18z', 'com24z', 'say18z', 'say24z')], main="Raw+z") 
+
+for(thisvar in c('total.tro.pref.quotient',   'Vowel.Alt.pref.quotient', 'Novelty.VRM')) plot((data[,thisvar]) ~ jitter(as.numeric(data$A.not.B.score)), main=thisvar)  
+
+```
+
+## Conclusions on preliminaries
+All predictors look beautiful, except for two outliers in Novelty that may need to be dealt with.
+
+Notes on the percentiles as outcomes:
+
+ * some deviations from normality - particularly the 18m scores
+ * the 24m scores are not obviously normally distribute
+ * upon reflection, this would be the normal outcomes: percentiles are made to yield a flat distribution, and thus may not be ideal for the present case
+*  bivariate distributions a little odd for possibly understandable reasons: if you have a low production score at 18, your say score at 24 could be high or low; but if you had a high score at 18 your say at 24 will also be high
+*  we also checked for variances in every predictor being different depending on the values of all the other predictors, and nothing jumped out in visual inspection
+
+Notes on the raw as outcomes:
+
+*  potentially floor effect for 18say
+*  potentially ceiling effect for 24com
+*  huge correlation 18com and 24com; less obvious for other ages
+*  1 outlier in 18say
+
+Notes on the combined outcomes:
+
+*  on percentiles: look kind of bimodal (but we know that underlyingly should be flat, so we expected this to be ugly)
+*  on raw looks terrible, with a long right tail
+*  on raw-z looks pretty good, except 1 outlier (probably the one in 18say)
+    
+## Test on models fit to percentiles
+
+```{r model-test-pc,echo=T}
+lm(values ~ total.tro.pref.quotient + Vowel.Alt.pref.quotient +
+     Novelty.VRM + A.not.B.score + ind + (1/Subject..), data= stdat,subset=c(ind %in% c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec'))) -> lmpc
+
+
+outlierTest(lmpc)
+
+plot(residuals(lmpc) ~ fitted(lmpc))
+
+qqPlot(lmpc, main="QQ Plot")
+
+gvlma(lmpc)
+
+```
+Conclusion: looks awful!!
+
+## Test on models fit to raw-z
+```{r model-test-rawz,echo=T}
+lm(values ~ total.tro.pref.quotient + Vowel.Alt.pref.quotient +
+     Novelty.VRM + A.not.B.score + ind + Gender + (1/Subject..), data= stdatz) -> lmrz
+
+outlierTest(lmrz)
+
+plot(residuals(lmrz) ~ fitted(lmrz))
+
+qqPlot(lmrz, main="QQ Plot")
+
+gvlma(lmrz)
+
+```
+
+Conclusion: should do something about outlier; non-linear relationship between fitted and residuals?, qqplot looks OK, all assumptions are acceptable --> it's a go!!
+
+Decision point: I'll trim the value of the outlier 
+```{r out, echo=T}
+library(apaTables)
+stdatz.noout<-stdatz
+stdatz.noout[stdatz.noout$values>2 & !is.na(stdatz.noout$values),] #yields 2 observations, the outlier and another one
+
+stdatz.noout[stdatz.noout$values>4 & !is.na(stdatz.noout$values),"values"]<-2.186494
+
+lm(values ~ total.tro.pref.quotient + Vowel.Alt.pref.quotient +
+     Novelty.VRM + A.not.B.score +Gender+ ind + (1/Subject..), data= stdatz.noout) -> lmrzno
+##outlierTest(lmrzno) 
+gvlma(lmrzno)
+summary(lmrzno)
+anova(lmrzno)
+library(ggplot2)
+ggplot(stdatz.noout, aes(x=Vowel.Alt.pref.quotient, y=values)) +
+    geom_point(shape=1) +    # Use hollow circles
+    geom_smooth(method=lm) +   # Add linear regression line 
+       xlab("Vowel") +
+  ylab("Vocabulary")                 #  (by default includes 95% confidence region)
+apa.reg.table(lmrzno, filename = "Regression", table.number = 4)
+```
+
+These new models pass all tests.
+Now let's try the model including only vowel:
+```{r onlyvowel, echo=T}
+lm(values ~  Vowel.Alt.pref.quotient + ind + (1/Subject..), data= stdatz.noout) -> lmrzvowel
+outlierTest(lmrzvowel) 
+gvlma(lmrzvowel)
+summary(lmrzvowel)
+```
+
+
+## Final analysis: use raw-z
+Todo:
+
+*  Give one final read to the files containing recommendations for regressions (did we use the right tests? For instance, we looked at bivariate distributions among outcomes, and among predictors, but we only looked across the two for A-not-B -- which sounds bad!!) --> clean up the checks here adding what we may be missing 
+    - <span style="color:red">Alex, I'm not sure what you meant by "only looked across the two for A-not-B. But I didn't add some other checking for A-not-B."</span>
+    - http://pareonline.net/getvn.asp?n=2&v=8 does not specify whether bivariate distributions are checked for all variables (including between predictor and outcome), but DOES mention possibility of non-linear relationship. This, however, is not tested by inspecting a bivariate plot, but rather through inspection of residuals -- which we already do. This is also how homoescedasticity is tested, so I removed all plots that showed outcomes as a function of A-not-B scores (which could be a way of looking at a relationship between them already at this stage!)
+    - http://andrewgelman.com/2013/08/04/19470/ mentions  "In decreasing order of importance ... 1. Validity. Most importantly, the data you are analyzing should map to the research question you are trying to answer. This sounds obvious but is often overlooked or ignored because it can be inconvenient. . . . 2. Additivity and linearity. The most important mathematical assumption of the regression model is that its deterministic component is a linear function of the separate predictors . . . 3. Independence of errors. . . . 4. Equal variance of errors. . . . 5. Normality of errors. . . . Further assumptions are necessary if a regression coefficient is to be given a causal interpretation . . . Normality and equal variance are typically minor concerns, unless you???re using the model to make predictions for individual data points. -- all of these are checks for us, except for additivity. But conceptually, we don't expect interactions - is that what is meant? reading the comments, it looks like we shouldn't obsess on assumptions... let us return to this at a later date, perhaps ask an expert?
+*  See if we agree to go for the raw-z version, keeping all outliers, and adjusting the only outlier that jumped out  in the final model (other options: remove the whole line, or remove that value by NAing it, or do nothing)
+    - <span style="color:red">Based on the distribution and final model fit, it seems to me that using raw+z is the best option among the ones that you fitted. Based on my knowledge of outliers, I think it is better to remove outliers becuase including them may affect the results. I saw you tried the outliers for the combined raw+z measure. Shall we also removed the 2 outliers from Vowel test?"</span>
+    - in fact, only one observation appears as an outlier on the overall test -- so I guess the two observations in VRM are not so troublesome. For the one that comes out as problematic, what I did was trim it -- that is, attribute it the highest observed value below the 3SD range. Are you okay with that? yy: yes
+*  Look at results!

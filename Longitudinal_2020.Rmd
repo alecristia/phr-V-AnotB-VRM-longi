@@ -1,0 +1,147 @@
+---
+title: "Prediction of toddler vocabulary from infant speech and non-speech processing"
+author: "Alejandrina Cristia"
+date: "Main version 2020-07-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Hmisc) #for cor mat
+library(brms)
+library(bayestestR)
+zscore<-function(x) (x - mean(x,na.rm=T))/ sd(x,na.rm=T)
+
+```
+
+## History
+
+- 2020-07-30: First version
+
+## Read and preprocess data
+
+```{r startup, echo=FALSE}
+
+
+read.csv("Longitudinal_8_22_16.csv")->mydat # read in the data
+
+#check that everything looks OK
+names(mydat)
+dim(mydat)
+summary(mydat)
+
+
+#clean up
+mydat$Subject.. <- factor(mydat$Subject..)
+mydat$ A.not.B.score  <- factor(mydat$ A.not.B.score )
+mydat[!is.na(mydat$Subject..), ] -> data #97 observations
+mydat[, -29] -> mydat
+
+
+##there is an outlier in age CDI 24, it has been checked, it is his/her real CDI age 
+#after discussion, we decide to remove the data from  this outlier child from the 24m analysis
+mydat[mydat$X24mCDIAge>26 & !is.na(mydat$X24mCDIAge), c("X24mCDIAge","X24mCom","X24msay" , "X24mSayALL","X24mSayGenderSpec")] <- NA
+
+# z-scored
+mydat$com18z=zscore(mydat$X18mCom)
+mydat$say18z=zscore(mydat$X18mSay)
+mydat$say24z=zscore(mydat$X24msay)
+
+mydat$anotB=NA
+mydat$anotB[mydat$A.not.B.score==1]<-"fail"
+mydat$anotB[mydat$A.not.B.score==2]<-"error"
+mydat$anotB[mydat$A.not.B.score==3]<-"pass"
+
+```
+
+
+## Correlation matrix
+
+```{r cors}
+cor.mat=rcorr(as.matrix(mydat[,c("total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM",
+            "com18z","say18z","say24z")]))
+
+# r values
+cor.mat$r
+
+# p values
+cor.mat$p
+
+# Ns
+cor.mat$n
+
+```
+
+
+## Regressions for AnotB
+
+
+```{r anotb}
+regtab=NULL
+
+for(thisvar in c("total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM",
+            "com18z","say18z","say24z")) {
+  myaov=summary(aov(mydat[,thisvar]~anotB,data=mydat))
+  regtab=rbind(regtab,
+               cbind(thisvar, unlist(myaov)["Df2"], unlist(myaov)["F value1"], unlist(myaov)["Pr(>F)1"]))}
+
+
+regtab
+
+```
+
+
+## Setting up models
+
+
+```{r setprior}
+niter=4000
+nwarmup=500
+
+#values for scaled variables
+nu=3
+s=1
+
+
+our_priors <- c(prior("student_t(3,0,1)", class = b),
+              prior("student_t(3,0,1)", class = Intercept)
+             )
+
+
+```
+
+
+### Fit univariate models
+
+
+```{r pred_ini}
+
+stdatz=cbind( data[,c("Subject..","Gender","total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM","A.not.B.score")], stack(data[,c("com18z","com24z","say18z","say24z")]))
+
+
+main = brm(Ar_s | weights(rec_rat) ~ 
+   sex * ses.3f + overlapr_s +
+   normative*age_s +
+  monoling*age_s +
+  (1 |corpus) + (1 | corpus:corp_chi), data = bsl_conf_scaled,
+  prior = in_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T,
+  file="input_model"
+  )
+
+plot(input_model)
+input_model
+
+in_bf = bayesfactor_parameters(input_model, null = 0,effects="fixed")
+in_bf
+plot(in_bf)
+```
+
+
+
+
+
+
