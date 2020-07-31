@@ -1,0 +1,301 @@
+---
+title: "Prediction of toddler vocabulary from infant speech and non-speech processing"
+author: "Alejandrina Cristia"
+date: "Main version 2020-07-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Hmisc) #for cor mat
+library(brms)
+library(bayestestR)
+
+#functions
+zscore<-function(x) (x - mean(x,na.rm=T))/ sd(x,na.rm=T)
+
+fit_uni_print <- function(mymodel, thisvar) {
+  print(thisvar)
+  print(plot(mymodel))
+  pp_check(mymodel, nsamples = 1000)
+  print(mymodel)
+  saveRDS(summary(mymodel), file = paste(thisvar, "main_model_summary.rds",sep="_"))
+  in_bf = bayesfactor_parameters(mymodel, null = 0)
+  print(in_bf)
+  print(plot(in_bf))
+  saveRDS(in_bf, file = paste(thisvar, "main_model_bf.rds",sep="_"))
+}
+
+cohensd<-function(pref_vector) mean(pref_vector-.5, na.rm=T)/sd(pref_vector, na.rm=T)
+
+
+# IMPORTANT: SET THIS TO TRUE IF YOU WANT TO RECALCULATE ALL THE MODELS
+RECALC=FALSE
+```
+
+## History
+
+- 2020-07-30: First version
+- 2020-07-31: Final version
+
+## Read and preprocess data
+
+```{r startup, echo=FALSE}
+
+
+read.csv("Longitudinal_8_22_16.csv")->mydat # read in the data
+
+#check that everything looks OK
+names(mydat)
+dim(mydat)
+summary(mydat)
+
+
+#clean up
+mydat$Subject.. <- factor(mydat$Subject..)
+mydat$ A.not.B.score  <- factor(mydat$ A.not.B.score )
+mydat[!is.na(mydat$Subject..), ] -> data #97 observations
+mydat[, -29] -> mydat
+
+
+##there is an outlier in age CDI 24, it has been checked, it is his/her real CDI age 
+#after discussion, we decide to remove the data from  this outlier child from the 24m analysis
+mydat[mydat$X24mCDIAge>26 & !is.na(mydat$X24mCDIAge), c("X24mCDIAge","X24mCom","X24msay" , "X24mSayALL","X24mSayGenderSpec")] <- NA
+
+# z-scored
+mydat$com18z=zscore(mydat$X18mCom)
+mydat$say18z=zscore(mydat$X18mSay)
+mydat$say24z=zscore(mydat$X24msay)
+
+mydat$anotB=NA
+mydat$anotB[mydat$A.not.B.score==1]<-"fail"
+mydat$anotB[mydat$A.not.B.score==2]<-"error"
+mydat$anotB[mydat$A.not.B.score==3]<-"pass"
+
+
+# Create stacked version of the data
+
+stdatz=cbind( mydat[,c("Subject..","Gender","Vowel.Alt.pref.quotient","A.not.B.score","vowels.Age", "total.tro.pref.quotient","Novelty.VRM","VRM.age")], stack(mydat[,c("com18z","say18z","say24z")]))
+
+#note that the age for vowel and a not b is the same, the age for stress & vrm is the same
+summary(stdatz)
+
+
+```
+
+
+## Correlation matrix
+
+```{r cors}
+cor.mat=rcorr(as.matrix(mydat[,c("total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM",
+            "com18z","say18z","say24z")]))
+
+# r values
+cor.mat$r
+
+# p values
+cor.mat$p
+
+# Ns
+cor.mat$n
+
+write.table(cor.mat$r,file="cormat.txt")
+write.table(cor.mat$p,file="cormat.txt",append=T)
+write.table(cor.mat$n,file="cormat.txt",append=T)
+```
+
+
+## Regressions for AnotB
+
+
+```{r anotb}
+regtab=NULL
+
+for(thisvar in c("total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM",
+            "com18z","say18z","say24z")) {
+  myaov=summary(aov(mydat[,thisvar]~anotB,data=mydat))
+  regtab=rbind(regtab,
+               cbind(thisvar, unlist(myaov)["Df2"], unlist(myaov)["F value1"], unlist(myaov)["Pr(>F)1"]))}
+
+
+regtab
+write.table(regtab,file="regtab.txt")
+```
+
+
+## Setting up models
+
+If RECALC is TRUE then the next chunk will not be done...
+```{r readrds, eval=!RECALC}
+
+readRDS("vowel main_model.rds")->vowel
+readRDS("anotb main_model.rds")->anb
+readRDS("stress main_model.rds")->strs
+readRDS("vrm main_model.rds")->vrm
+readRDS("main_model.rds")->main
+```
+
+... but this one will:
+
+```{r setprior, eval=RECALC}
+niter=4000
+nwarmup=500
+
+#values for scaled variables -- this cannot be passed as a variable to stan, but it's noted here for clarity
+nu=3
+s=1
+
+our_priors <- c(prior("student_t(3,0,1)", class = b),
+              prior("student_t(3,0,1)", class = Intercept)
+             )
+```
+
+### Univariate Bayesian models
+
+#### Vowels
+
+```{r vow, eval=RECALC}
+
+vowel = brm(values ~ 
+   Vowel.Alt.pref.quotient*vowels.Age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+saveRDS(vowel, file = paste("vowel", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(vowel,"vowel")
+```
+
+
+#### A-not-B
+
+```{r anb, eval=RECALC}
+
+anb = brm(values ~ 
+   A.not.B.score*vowels.Age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(anb, file = paste("anotb", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(anb,"anotb")
+```
+
+
+#### Stress
+
+```{r strs, eval=RECALC}
+
+strs = brm(values ~ 
+   total.tro.pref.quotient*VRM.age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(strs, file = paste("stress", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(strs,"stress")
+```
+
+#### VRM
+
+```{r vrm, eval=RECALC}
+
+vrm = brm(values ~ 
+   Novelty.VRM*VRM.age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(vrm, file = paste("vrm", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(vrm,"vrm")
+```
+
+### Multivariate Bayesian model
+
+
+```{r pred_ini, eval=RECALC}
+
+
+
+main = brm(values ~ 
+   total.tro.pref.quotient + Vowel.Alt.pref.quotient + Novelty.VRM + A.not.B.score +
+     Gender + ind + (1 | Subject..), data = stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+saveRDS(main,file="main_model.rds")
+
+```
+
+```{r}
+
+plot(main)
+
+pp_check(main, nsamples = 1000)
+
+main
+
+saveRDS(summary(main),file="main_model_summary.rds")
+
+
+in_bf = bayesfactor_parameters(main, null = 0)
+in_bf
+plot(in_bf)
+saveRDS(in_bf,file="main_model_bf.rds")
+
+```
+
+
+## Relating strength of population effect to predictive power
+
+```{r getds}
+
+d_vow=cohensd(mydat$Vowel.Alt.pref.quotient)
+d_strs=cohensd(mydat$total.tro.pref.quotient)
+d_vrm=cohensd(mydat$Novelty.VRM)
+
+defftab=rbind(cbind(d_vow,d_strs,d_vrm),
+                cbind(fixef(vowel)["Vowel.Alt.pref.quotient","Estimate"],
+                fixef(strs)["total.tro.pref.quotient","Estimate"],
+               fixef(vrm)["Novelty.VRM","Estimate"]))
+print(defftab)
+
+write.table(defftab,file="defftab.txt")
+```
+
+
+
