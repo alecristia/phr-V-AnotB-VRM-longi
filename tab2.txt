@@ -1,0 +1,7 @@
+"Stress"	"VRM"	"Vowel"	"18m receptive"	"18m expressive"	"24m expressive"
+"Stress"		 0.00 (93)	 0.23 (93)*	 0.02 (63)	 0.03 (63)	 0.14 (60)
+"VRM"			 0.04 (91)	-0.02 (62)	-0.03 (62)	 0.09 (59)
+"Vowel"				 0.17 (62)	 0.21 (62)†	 0.24 (58)†
+"18m receptive"					 0.60 (63)**	 0.58 (54)**
+"18m expressive"						 0.70 (54)**
+"24m expressive"						
