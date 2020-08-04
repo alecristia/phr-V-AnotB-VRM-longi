@@ -36,7 +36,8 @@ RECALC=FALSE
 ## History
 
 - 2020-07-30: First version
-- 2020-07-31: Final version
+- 2020-07-31: Final version of analyses
+- 2020-08-04: Making sure that everything is in the same order as in the manuscript
 
 ## Read and preprocess data
 
@@ -83,6 +84,9 @@ summary(stdatz)
 
 ```
 
+## Beginning of results section
+
+Analyses were implemented in the R environment (R Core Team, 2014), and are available from supplementary materials.  Table 1 presents the summary statistics for each measure. Prior to any analysis, we inspected the distributions of each measure using histograms and QQ plots. The distribution of the 3 continuous infant measures, namely, Stress, Vowel, and VRM, were approximately normal. However, the 3 vocabulary measures were not normally distributed. Therefore, we standardized the three outcome measures by applying z-scoring and then trimmed values more than 3 SD (N = 1) to improve the residual distribution, which yielded an approximately normal distribution of the outcome measures. 
 
 ## Correlation matrix
 
