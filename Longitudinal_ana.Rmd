@@ -39,6 +39,19 @@ RECALC=FALSE
 - 2020-07-31: Final version of analyses
 - 2020-08-04: Making sure that everything is in the same order as in the manuscript
 
+## TODO
+
+- add code to produce the tables:
+- 1 has m(sd) & age for the 7 measures, cohen's d, and estimate (SE), where possible
+- 2 is the cor mat
+- 3 has m (SD, N) for hit, error, fail for the 6 measures, F, p --> probably do m (SD) then F df p
+- 4 now is estimate for var, estimate for var*age
+- 5
+- create OSF
+- upload stuff
+- add here the code for the regression
+- add explanations
+
 ## Read and preprocess data
 
 ```{r startup, echo=FALSE}
@@ -170,13 +183,13 @@ cor.mat=rcorr(as.matrix(mydat[,c("total.tro.pref.quotient","Vowel.Alt.pref.quoti
 cor.mat$r
 
 # p values
-cor.mat$p
+cor.mat$P
 
 # Ns
 cor.mat$n
 
 write.table(cor.mat$r,file="cormat.txt")
-write.table(cor.mat$p,file="cormat.txt",append=T)
+write.table(cor.mat$P,file="cormat.txt",append=T)
 write.table(cor.mat$n,file="cormat.txt",append=T)
 ```
 
