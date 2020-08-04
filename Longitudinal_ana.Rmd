@@ -78,7 +78,7 @@ mydat$anotB[mydat$A.not.B.score==3]<-"pass"
 
 stdatz=cbind( mydat[,c("Subject..","Gender","Vowel.Alt.pref.quotient","A.not.B.score","vowels.Age", "total.tro.pref.quotient","Novelty.VRM","VRM.age")], stack(mydat[,c("com18z","say18z","say24z")]))
 
-#note that the age for vowel and a not b is the same, the age for stress & vrm is the same
+#note that the age for vowel and a not b is (mostly) the same, the age for stress & vrm is the same
 summary(stdatz)
 
 
@@ -86,9 +86,81 @@ summary(stdatz)
 
 ## Beginning of results section
 
-Analyses were implemented in the R environment (R Core Team, 2014), and are available from supplementary materials.  Table 1 presents the summary statistics for each measure. Prior to any analysis, we inspected the distributions of each measure using histograms and QQ plots. The distribution of the 3 continuous infant measures, namely, Stress, Vowel, and VRM, were approximately normal. However, the 3 vocabulary measures were not normally distributed. Therefore, we standardized the three outcome measures by applying z-scoring and then trimmed values more than 3 SD (N = 1) to improve the residual distribution, which yielded an approximately normal distribution of the outcome measures. 
+Analyses were implemented in the R environment (R Core Team, 2014), and are available from supplementary materials.  Table 1 presents the summary statistics for each measure.
 
-## Correlation matrix
+### Table 1
+
+```{r tab1}
+
+
+doline<-function(myage,myvec,prettyname,dod=F){
+  #myage=mydat$vowels.Age
+  #myvec=mydat$Vowel.Alt.pref.quotient
+  #prettyname="Vowel"
+  #dod=T
+  cbind(prettyname,sum(!is.na(myvec)),
+        paste0(round(mean(myage,na.rm=T),2)," (",round(sd(myage,na.rm=T),2),")"), #age(sd)
+        paste0(round(mean(myvec,na.rm=T),2)," (",round(sd(myvec,na.rm=T),2),")"), #score(sd)
+        ifelse(dod,round(cohensd(myvec),3),"")
+        )
+}
+
+
+tab1=rbind(
+  doline(mydat$VRM.age,mydat$total.tro.pref.quotient,"Stress",T),
+  doline(mydat$VRM.age,mydat$Novelty.VRM,"VRM",T),
+  doline(mydat$vowels.Age,mydat$Vowel.Alt.pref.quotient,"Vowel",T),
+  doline(mydat$A.not.B.Age,as.numeric(mydat$A.not.B.score),"A-not-B",F),
+  doline(mydat$X18mCDIAge,mydat$X18mCom,"18m receptive",F),
+  doline(mydat$X18mCDIAge,mydat$X18mSay,"18m expressive",F),
+  doline(mydat$X24mCDIAge,mydat$X24msay,"24m expressive",F)
+  )
+
+colnames(tab1)<-c("Measure",	"No.",	"Age (SD)",	"Score (SD)",	"Cohen's d")
+write.table(tab1,file="tab1.txt",row.names=F,quote=F,sep="\t")
+
+```
+
+
+### Distribution checks
+
+Prior to any analysis, we inspected the distributions of each measure using histograms and QQ plots. The distribution of the 3 continuous infant measures, namely, Stress, Vowel, and VRM, were approximately normal. However, the 3 vocabulary measures were not normally distributed. Therefore, we standardized the three outcome measures by applying z-scoring and then trimmed values more than 3 SD (N = 1) to improve the residual distribution, which yielded an approximately normal distribution of the outcome measures. 
+ 
+```{r checkuni,echo=T}
+
+table(data$A.not.B.score)
+
+#outcomes
+for(thisvar in predictors) hist(data[,thisvar],main=thisvar)
+
+#outcomes - separated
+for(thisvar in outcomes) hist(data[,thisvar],main=thisvar)
+
+#outcomes - combined - percentiles
+hist(stdat$values[stdat$ind %in% c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec')],main="Combined-percentiles")
+
+#outcomes - combined - raw
+hist(stdat$values[!(stdat$ind %in% c('X18mComGenderSpec', 'X18mSayGenderSpec', 'X24mSayGenderSpec'))],main="Combined-raw")
+
+#outcomes - combined - raw+Z
+hist(stdatz$values,main="Combined-raw+Z")
+
+
+# find outliers for each variable
+for(thisvar in c(outcomes,predictors)) {
+  #create a z-score for the observations
+  z = (data[,thisvar] - mean(data[,thisvar], na.rm=T) )/ sd(data[,thisvar], na.rm=T)
+  print(paste("there are",sum(abs(z)> 3, na.rm=T),"observations that are outliers 
+          at 3 SD in", thisvar))
+} 
+
+table(abs(stdatz$values)>3)
+```
+ 
+## Bivariate relationship among predictors     
+
+### Correlation matrix
+Table 2 presents the bivariate correlations between infant measures that were continuous (Stress, Vowel, VRM), and language outcome measures (18m receptive, 18m expressive, and 24m expressive vocabulary).
 
 ```{r cors}
 cor.mat=rcorr(as.matrix(mydat[,c("total.tro.pref.quotient","Vowel.Alt.pref.quotient", "Novelty.VRM",
@@ -110,7 +182,7 @@ write.table(cor.mat$n,file="cormat.txt",append=T)
 
 
 ## Regressions for AnotB
-
+Given that the A-not-B measure was categorical, we performed 6 separate one-way analyses of variance (ANOVAs) to examine whether there were differences on the other tasks with continuous data as a function of A-not-B outcome.
 
 ```{r anotb}
 regtab=NULL
@@ -153,6 +225,8 @@ our_priors <- c(prior("student_t(3,0,1)", class = b),
               prior("student_t(3,0,1)", class = Intercept)
              )
 ```
+
+## Prediction of vocabulary from each infant measure     
 
 ### Univariate Bayesian models
 
@@ -245,6 +319,9 @@ saveRDS(vrm, file = paste("vrm", "main_model.rds",sep="_"))
 fit_uni_print(vrm,"vrm")
 ```
 
+## Evaluating the relative importance of different predictors 
+### Frequentist analysis
+
 ### Multivariate Bayesian model
 
 
@@ -284,22 +361,6 @@ saveRDS(in_bf,file="main_model_bf.rds")
 ```
 
 
-## Relating strength of population effect to predictive power
-
-```{r getds}
-
-d_vow=cohensd(mydat$Vowel.Alt.pref.quotient)
-d_strs=cohensd(mydat$total.tro.pref.quotient)
-d_vrm=cohensd(mydat$Novelty.VRM)
-
-defftab=rbind(cbind(d_vow,d_strs,d_vrm),
-                cbind(fixef(vowel)["Vowel.Alt.pref.quotient","Estimate"],
-                fixef(strs)["total.tro.pref.quotient","Estimate"],
-               fixef(vrm)["Novelty.VRM","Estimate"]))
-print(defftab)
-
-write.table(defftab,file="defftab.txt")
-```
 
 
 
