@@ -487,8 +487,9 @@ apa.reg.table(lmrzno, filename = "tab5.rtf", table.number = 5)
 ```{r fig3}
 png("fig3.png")
 mycol=c("black","darkgray","lightgray")
-names(mycol)<-levels(factor(stdatz.noout$ind))
-plot(values~Vowel,data=stdatz.noout,xlab="Preference quotient in the Vowel task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=20)
+mypch=c(4,1,20)
+names(mycol)=names(mypch)<-levels(factor(stdatz.noout$ind))
+plot(values~Vowel,data=stdatz.noout,xlab="Preference quotient in the Vowel task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=mypch[ind])
 abline(lm(values~Vowel,data=stdatz.noout))
 dev.off()
 ```
