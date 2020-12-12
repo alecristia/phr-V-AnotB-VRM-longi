@@ -1,0 +1,547 @@
+---
+title: "Prediction of toddler vocabulary from infant speech and non-speech processing"
+author: "Alejandrina Cristia"
+date: "Main version 2020-07-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Hmisc) #for cor mat
+library(brms) #used for bayesian ana
+library(bayestestR) #used for bayesian ana
+library(car) #used for outlier test
+library(gvlma) #used for model test
+library(MBESS) #used for tab5
+library(apaTables) #used for tab5
+
+#functions
+zscore<-function(x) (x - mean(x,na.rm=T))/ sd(x,na.rm=T)
+
+fit_uni_print <- function(mymodel, thisvar) {
+  print(thisvar)
+  print(plot(mymodel))
+  pp_check(mymodel, nsamples = 1000)
+  print(mymodel)
+  saveRDS(summary(mymodel), file = paste(thisvar, "main_model_summary.rds",sep="_"))
+  in_bf = bayesfactor_parameters(mymodel, null = 0)
+  print(in_bf)
+  print(plot(in_bf))
+  saveRDS(in_bf, file = paste(thisvar, "main_model_bf.rds",sep="_"))
+}
+
+cohensd<-function(pref_vector) mean(pref_vector-.5, na.rm=T)/sd(pref_vector, na.rm=T)
+
+
+# IMPORTANT: SET THIS TO TRUE IF YOU WANT TO RECALCULATE ALL THE MODELS
+RECALC=FALSE
+```
+
+## History
+
+- 2020-07-30: First version
+- 2020-07-31: Final version of analyses
+- 2020-08-04: Making sure that everything is in the same order as in the manuscript
+
+
+## Read and preprocess data
+
+```{r startup, echo=FALSE}
+
+
+read.csv("Longitudinal_8_22_16.csv")->mydat # read in the data
+
+#check that everything looks OK
+names(mydat)
+dim(mydat)
+summary(mydat)
+
+
+#clean up
+mydat$Subject.. <- factor(mydat$Subject..)
+mydat$ A.not.B.score  <- factor(mydat$ A.not.B.score )
+mydat[!is.na(mydat$Subject..), ] -> data #97 observations
+mydat[, -29] -> mydat
+
+
+##there is an outlier in age CDI 24, it has been checked, it is his/her real CDI age 
+#after discussion, we decide to remove the data from  this outlier child from the 24m analysis
+mydat[mydat$X24mCDIAge>26 & !is.na(mydat$X24mCDIAge), c("X24mCDIAge","X24mCom","X24msay" , "X24mSayALL","X24mSayGenderSpec")] <- NA
+
+# z-scored
+mydat$com18z=zscore(mydat$X18mCom)
+mydat$say18z=zscore(mydat$X18mSay)
+mydat$say24z=zscore(mydat$X24msay)
+
+mydat$anotB=NA
+mydat$anotB[mydat$A.not.B.score==1]<-"Error" #mapped onto fail in xl, but this is error in the paper
+mydat$anotB[mydat$A.not.B.score==2]<-"Random" #mapped onto error in xl, but this is random in the paper
+mydat$anotB[mydat$A.not.B.score==3]<-"Hit"  #mapped onto pass in xl, but this is hit in the paper
+
+#Rename variables so that they match the paper -- always stress, vrm, vowel, anotb
+mydat$Stress=mydat$total.tro.pref.quotient
+mydat$VRM=mydat$Novelty.VRM
+mydat$Vowel=mydat$Vowel.Alt.pref.quotient
+
+# Create stacked version of the data
+
+stdatz=cbind( mydat[,c("Subject..","Gender","Stress","VRM","VRM.age","Vowel","anotB","vowels.Age", "A.not.B.Age")], stack(mydat[,c("com18z","say18z","say24z")]))
+#note that the age for vowel and a not b is (mostly) the same, the age for stress & vrm is the same
+
+summary(stdatz)
+
+```
+
+## Beginning of results section
+
+Analyses were implemented in the R environment (R Core Team, 2014), and are available from supplementary materials.  Table 1 presents the summary statistics for each measure.
+
+### Table 1
+
+```{r tab1}
+
+
+doline<-function(myage,myvec,prettyname,dod=F){
+  #myage=mydat$vowels.Age
+  #myvec=mydat$Vowel.Alt.pref.quotient
+  #prettyname="Vowel"
+  #dod=T
+  cbind(prettyname,sum(!is.na(myvec)),
+        paste0(round(mean(myage,na.rm=T),2)," (",round(sd(myage,na.rm=T),2),")"), #age(sd)
+        paste0(round(mean(myvec,na.rm=T),2)," (",round(sd(myvec,na.rm=T),2),")"), #score(sd)
+        ifelse(dod,round(cohensd(myvec),3),"")
+        )
+}
+
+
+tab1=rbind(
+  doline(mydat$VRM.age,mydat$Stress,"Stress",T),
+  doline(mydat$VRM.age,mydat$VRM,"VRM",T),
+  doline(mydat$vowels.Age,mydat$Vowel,"Vowel",T),
+  doline(mydat$A.not.B.Age,as.numeric(mydat$A.not.B.score),"A-not-B",F), #!!! it doesn't make sense to provide numeric
+  doline(mydat$X18mCDIAge,mydat$X18mCom,"18m receptive",F),
+  doline(mydat$X18mCDIAge,mydat$X18mSay,"18m expressive",F),
+  doline(mydat$X24mCDIAge,mydat$X24msay,"24m expressive",F)
+  )
+
+
+
+```
+
+
+### Distribution checks
+
+Prior to any analysis, we inspected the distributions of each measure using histograms and QQ plots. The distribution of the 3 continuous infant measures, namely, Stress, Vowel, and VRM, were approximately normal. However, the 3 vocabulary measures were not normally distributed. Therefore, we standardized the three outcome measures by applying z-scoring and then trimmed values more than 3 SD (N = 1) to improve the residual distribution, which yielded an approximately normal distribution of the outcome measures. 
+ 
+```{r checkuni,echo=T}
+#outcomes: 
+outcomes = c("X18mCom",'X18mComGenderSpec', "X18mSay",'X18mSayGenderSpec',"X24mCom","X24msay", 'X24mSayGenderSpec')
+#predictions: 
+predictors = c("total.tro.pref.quotient", "Vowel.Alt.pref.quotient", "Novelty.VRM")
+# "A.not.B.score" is categorical
+
+table(data$A.not.B.score)
+
+#outcomes
+for(thisvar in predictors) hist(data[,thisvar],main=thisvar)
+
+#outcomes - separated
+for(thisvar in outcomes) hist(data[,thisvar],main=thisvar)
+
+stdat=cbind( data[,c("Subject..","total.tro.pref.quotient", "Vowel.Alt.pref.quotient",
+                     "Novelty.VRM", "A.not.B.score")], stack(data[,outcomes]))
+
+#outcomes - combined - percentiles
+hist(stdat$values[stdat$ind %in% c('X18mComGenderSpec')], main='X18mComGenderSpec')
+hist(stdat$values[stdat$ind %in% c('X18mSayGenderSpec')], main='X18mSayGenderSpec')
+hist(stdat$values[stdat$ind %in% c('X24mSayGenderSpec')], main='X24mSayGenderSpec')
+
+#outcomes - combined - raw
+hist(stdat$values[stdat$ind %in% c('X18mCom')], main='X18mCom')
+hist(stdat$values[stdat$ind %in% c('X18mSay')], main='X18mSay')
+hist(stdat$values[stdat$ind %in% c('X24msay')], main='X24msay')
+
+#outcomes - combined - raw+Z
+hist(stdatz$values,main="Combined-raw+Z")
+
+
+# find outliers for each variable
+for(thisvar in c(outcomes,predictors)) {
+  #create a z-score for the observations
+  print(thisvar)
+  z = (data[,thisvar] - mean(data[,thisvar], na.rm=T) )/ sd(data[,thisvar], na.rm=T)
+  print(paste("there are",sum(abs(z)> 3, na.rm=T),"observations that are outliers 
+          at 3 SD in", thisvar))
+} 
+
+table(abs(stdatz$values)>3)
+```
+ 
+## Bivariate relationship among predictors     
+
+### Correlation matrix
+Table 2 presents the bivariate correlations between infant measures that were continuous (Stress, Vowel, VRM), and language outcome measures (18m receptive, 18m expressive, and 24m expressive vocabulary).
+
+```{r cors}
+numvars=as.matrix(mydat[,c("Stress", "VRM","Vowel",
+            "com18z","say18z","say24z")])
+colnames(numvars)<-c("Stress","VRM","Vowel","18m receptive","18m expressive","24m expressive")
+cor.mat=rcorr(numvars)
+
+# r values
+cor.mat$r
+
+# p values
+cor.mat$P
+
+# Ns
+cor.mat$n
+
+# create star 
+
+cor.mat$star=ifelse(cor.mat$P<.001,"**",
+                    ifelse(cor.mat$P<.05,"*",
+                           ifelse(cor.mat$P<.1,"†","")))
+
+#compose the table
+
+#round
+cor.mat$r=format(round(cor.mat$r,2),nsmall=2)
+
+#add dfs
+my.cor.mat=matrix(Map("paste", cor.mat$r, (cor.mat$n-2), sep=" ("),nrow=dim(cor.mat$r)[1])
+my.cor.mat=matrix(Map("paste", my.cor.mat, ")", sep=""),nrow=dim(cor.mat$r)[1])
+#add *
+my.cor.mat=matrix(Map("paste", my.cor.mat, cor.mat$star, sep=""),nrow=dim(cor.mat$r)[1])
+
+colnames(my.cor.mat)=colnames(cor.mat$r)
+rownames(my.cor.mat)=colnames(cor.mat$r)
+
+#remove the values at or below the diagonal
+for(i in 1:dim(my.cor.mat)[1]) for(j in 1:dim(my.cor.mat)[1]) if(i>=j) my.cor.mat[i,j]<-""
+
+write.table(my.cor.mat,file="tab2.txt",row.names=T,quote=T,sep="\t")
+
+```
+
+
+## Regressions for AnotB
+Given that the A-not-B measure was categorical, we performed 6 separate one-way analyses of variance (ANOVAs) to examine whether there were differences on the other tasks with continuous data as a function of A-not-B outcome.
+
+```{r anotb}
+dothiscell<-function(thistype,thisvar){
+  paste0(round(mean(mydat[mydat$anotB==thistype,thisvar],na.rm=T),2), 
+         " (", 
+         round(sd(mydat[mydat$anotB==thistype,thisvar],na.rm=T),2),"; ", 
+         sum(!is.na(mydat[mydat$anotB==thistype,thisvar])),
+         ")")
+}
+regtab=NULL
+
+for(thisvar in c("Stress","VRM","Vowel",
+            "com18z","say18z","say24z")) {
+  myaov=summary(aov(mydat[,thisvar]~anotB,data=mydat))
+
+  regtab=rbind(regtab,
+               cbind(thisvar, 
+                     dothiscell("Hit",thisvar),dothiscell("Random",thisvar),dothiscell("Error",thisvar),
+                     paste0("F(", unlist(myaov)["Df2"], ")=", round(unlist(myaov)["F value1"],2),
+                            " p=", round(unlist(myaov)["Pr(>F)1"],3))
+               ))}
+
+colnames(regtab)<-c(
+"Task",
+"Hit",
+"Error",
+"Random",
+"F(df), p"
+)
+regtab[4:6,'Task']<-c("18m receptive","18m expressive","24m expressive")
+regtab
+write.table(regtab,file="tab3.txt",row.names=F,quote=T,sep="\t")
+```
+
+
+## Setting up models
+
+If RECALC is TRUE then the next chunk will not be done...
+```{r readrds, eval=!RECALC}
+
+readRDS("vowel_main_model.rds")->vowel
+readRDS("anotb_main_model.rds")->anb
+readRDS("stress_main_model.rds")->strs
+readRDS("vrm_main_model.rds")->vrm
+readRDS("main_model.rds")->main
+```
+
+... but this one will (and vice versa):
+
+```{r setprior, eval=RECALC}
+niter=4000
+nwarmup=500
+
+#values for scaled variables -- this cannot be passed as a variable to stan, but it's noted here for clarity
+nu=3
+s=1
+
+our_priors <- c(prior("student_t(3,0,1)", class = b),
+              prior("student_t(3,0,1)", class = Intercept)
+             )
+```
+
+## Prediction of vocabulary from each infant measure     
+
+### Univariate Bayesian models
+
+#### Stress
+
+```{r strs, eval=RECALC}
+
+strs = brm(values ~ 
+   Stress*VRM.age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(strs, file = paste("stress", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(strs,"stress")
+```
+
+#### VRM
+
+```{r vrm, eval=RECALC}
+
+vrm = brm(values ~ 
+   VRM*VRM.age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(vrm, file = paste("vrm", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(vrm,"vrm")
+```
+
+
+#### Vowel
+
+```{r vow, eval=RECALC}
+
+vowel = brm(values ~ 
+   Vowel*vowels.Age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+saveRDS(vowel, file = paste("vowel", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(vowel,"vowel")
+```
+
+
+#### A-not-B
+
+```{r anb, eval=RECALC}
+
+anb = brm(values ~ 
+   anotB*A.not.B.Age +
+  + ind + (1 | Subject..), data=stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+
+saveRDS(anb, file = paste("anotb", "main_model.rds",sep="_"))
+
+```
+
+```{r}
+fit_uni_print(anb,"anotb")
+```
+
+
+
+#### Add estimates to table 1
+
+```{r add2tab1}
+
+myvec=c(paste0(round(fixef(strs)["Stress","Estimate"],2)," (",round(fixef(strs)["Stress","Est.Error"],2),")"),
+        paste0(round(fixef(vrm)["VRM","Estimate"],2)," (",round(fixef(vrm)["VRM","Est.Error"],2),")"),
+        paste0(round(fixef(vowel)["Vowel","Estimate"],2)," (",round(fixef(vowel)["Vowel","Est.Error"],2),")"),
+        paste0("<",round(max(fixef(anb)[c("anotBHit","anotBRandom"),"Estimate"]),2)," (>",round(min(fixef(anb)[c("anotBHit","anotBRandom"),"Est.Error"]),2),")"),
+        "--",
+        "--",
+        "--"
+        )
+cbind(tab1,myvec)->tab1
+colnames(tab1)<-c("Measure",	"No.",	"Age (SD)",	"Score (SD)",	"Cohen's d", "Estimate (SE)")
+write.table(tab1,file="tab1.txt",row.names=F,quote=F,sep="\t")
+```
+
+### Table 4
+
+Estimate (standard error), 95 percent credibility interval, and Bayes Factor for each measure as predictor of vocabulary (in a Bayesian mixed model declaring all vocabulary measures together), as well as the same metrics for this predictor's interaction with age in that model. Null>Alt indicates that the Bayes Factor shows more support for the null than the alternative equal to the ratio provided. No predictor or interaction showed more support for the alternative than the null. 
+
+```{r}
+# Predictor Interaction with age
+#Measure, Estimate (SE), 95% CI, BF
+
+dolinetab4<-function(mymod,varname){
+  #print(varname)
+  #mymod=strs ; varname="Stress"
+  if(varname %in% c("anotBHit","anotBRandom")) readRDS(file = paste("anotb", "main_model_bf.rds",sep="_"))->temp else readRDS(file = paste(tolower(varname), "main_model_bf.rds",sep="_"))->temp
+  
+  age_interaction_line=grep(varname,rownames(fixef(mymod)))[2]
+
+  cbind(varname, paste0(round(fixef(mymod)[varname,"Estimate"],2)," (",round(fixef(mymod)[varname,"Est.Error"],2),")"), #Measure, Estimate (SE)
+       paste0("[",round(fixef(mymod)[varname,"Q2.5"],2),", ",round(fixef(mymod)[varname,"Q97.5"],2),"]"), #95% CI
+       round(1/temp[grep(varname,temp$Parameter),"BF"][1],2), #bf #this is ugly but basically there are 2 lines with the varname, the first is the main, the second the interaction with age
+       #repeat for interaction with age 
+       paste0(round(fixef(mymod)[age_interaction_line,"Estimate"],2)," (",round(fixef(mymod)[age_interaction_line,"Est.Error"],2),")"), #Estimate (SE)
+       paste0("[",round(fixef(mymod)[age_interaction_line,"Q2.5"],2),", ",round(fixef(mymod)[age_interaction_line,"Q97.5"],2),"]"), #95% CI
+      round(1/temp[grep(varname,temp$Parameter),"BF"][2],2) #bf
+  )
+}
+
+tab4=rbind(
+  dolinetab4(strs,"Stress"),
+  dolinetab4(vrm,"VRM"),
+  dolinetab4(vowel,"Vowel"),
+  dolinetab4(anb,"anotBHit"),
+  dolinetab4(anb,"anotBRandom")
+)
+colnames(tab4)<-c("Task",	"Estimate (SE)",	"95% CI",	"Null>Alt BF",	"Estimate (SE)",	"95% CI",	"Null>Alt BF")
+tab4
+write.table(tab4,file="tab4.txt",row.names=F,quote=F,sep="\t")   
+```
+
+
+## Evaluating the relative importance of different predictors 
+### Frequentist analysis
+
+```{r model-test-rawz,echo=T}
+lm(values ~ Stress + Vowel +
+     VRM + anotB + ind + Gender + (1/Subject..), data= stdatz) -> lmrz
+
+outlierTest(lmrz)
+
+plot(residuals(lmrz) ~ fitted(lmrz))
+
+qqPlot(lmrz, main="QQ Plot")
+
+gvlma(lmrz)
+
+```
+
+Conclusion: should do something about outlier; non-linear relationship between fitted and residuals?, qqplot looks OK, all assumptions are acceptable --> it's a go!!
+
+Decision point: I'll trim the value of the outlier 
+
+```{r out, echo=T}
+stdatz.noout<-stdatz
+stdatz.noout[stdatz.noout$values>2 & !is.na(stdatz.noout$values),] #yields 2 observations, the outlier and another one
+
+stdatz.noout[stdatz.noout$values>4 & !is.na(stdatz.noout$values),"values"]<-2.186494 #this line assigns to the outlier the other highest value  - about 2SD above the mean for CDI
+
+lm(values ~ Stress + Vowel +
+     VRM + anotB  +Gender+ ind + (1/Subject..), data= stdatz.noout) -> lmrzno
+outlierTest(lmrzno) 
+gvlma(lmrzno) #all assumptions met
+
+```
+
+#### Table 5
+
+```{r inspect-model-fit, echo=T}
+
+summary(lmrzno)
+anova(lmrzno)
+apa.reg.table(lmrzno, filename = "tab5.rtf", table.number = 5)
+```
+
+#### Figure 3
+
+```{r fig3}
+png("fig3.png")
+mycol=c("black","darkgray","lightgray")
+mypch=c(4,1,20)
+names(mycol)=names(mypch)<-levels(factor(stdatz.noout$ind))
+plot(values~Vowel,data=stdatz.noout,xlab="Preference quotient in the Vowel task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=mypch[ind])
+abline(lm(values~Vowel,data=stdatz.noout))
+dev.off()
+
+png("fig4.png")
+mycol=c("black","darkgray","lightgray")
+mypch=c(4,1,20)
+names(mycol)=names(mypch)<-levels(factor(stdatz.noout$ind))
+plot(values~Stress,data=stdatz.noout,xlab="Preference quotient in the Stress task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=mypch[ind])
+abline(lm(values~Stress,data=stdatz.noout))
+dev.off()
+```
+
+
+### Multivariate Bayesian model
+
+
+```{r pred_ini, eval=RECALC}
+
+
+
+main = brm(values ~ 
+   total.tro.pref.quotient + Vowel.Alt.pref.quotient + Novelty.VRM + A.not.B.score +
+     Gender + ind + (1 | Subject..), data = stdatz,
+  prior = our_priors,
+             iter=niter, warmup=nwarmup, chains=4,cores=2,
+             seed=12,
+             save_all_pars = T,
+             sample_prior = T
+  )
+saveRDS(main,file="main_model.rds")
+
+```
+
+```{r}
+
+plot(main)
+
+pp_check(main, nsamples = 1000)
+
+main
+
+saveRDS(summary(main),file="main_model_summary.rds")
+
+
+in_bf = bayesfactor_parameters(main, null = 0)
+in_bf
+plot(in_bf)
+saveRDS(in_bf,file="main_model_bf.rds")
+
+```
+
+
+
+
+
