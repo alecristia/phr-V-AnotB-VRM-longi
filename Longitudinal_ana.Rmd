@@ -492,6 +492,14 @@ names(mycol)=names(mypch)<-levels(factor(stdatz.noout$ind))
 plot(values~Vowel,data=stdatz.noout,xlab="Preference quotient in the Vowel task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=mypch[ind])
 abline(lm(values~Vowel,data=stdatz.noout))
 dev.off()
+
+png("fig4.png")
+mycol=c("black","darkgray","lightgray")
+mypch=c(4,1,20)
+names(mycol)=names(mypch)<-levels(factor(stdatz.noout$ind))
+plot(values~Stress,data=stdatz.noout,xlab="Preference quotient in the Stress task",ylab="Vocabulary (z-scored)",col=mycol[ind],pch=mypch[ind])
+abline(lm(values~Stress,data=stdatz.noout))
+dev.off()
 ```
 
 
