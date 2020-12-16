@@ -26,7 +26,7 @@ fit_uni_print <- function(mymodel, thisvar) {
   saveRDS(summary(mymodel), file = paste(thisvar, "main_model_summary.rds",sep="_"))
   in_bf = bayesfactor_parameters(mymodel, null = 0)
   print(in_bf)
-  print(plot(in_bf))
+  #print(plot(in_bf))
   saveRDS(in_bf, file = paste(thisvar, "main_model_bf.rds",sep="_"))
 }
 
@@ -42,6 +42,7 @@ RECALC=FALSE
 - 2020-07-30: First version
 - 2020-07-31: Final version of analyses
 - 2020-08-04: Making sure that everything is in the same order as in the manuscript
+- 2020-12-16: Integrating changes by YYW, adding table 6, checking for reproducibility
 
 
 ## Read and preprocess data
@@ -272,6 +273,8 @@ readRDS("anotb_main_model.rds")->anb
 readRDS("stress_main_model.rds")->strs
 readRDS("vrm_main_model.rds")->vrm
 readRDS("main_model.rds")->main
+main_summary=readRDS("main_model_summary.rds")
+main_BF=readRDS("main_model_bf.rds")
 ```
 
 ... but this one will (and vice versa):
@@ -311,7 +314,7 @@ saveRDS(strs, file = paste("stress", "main_model.rds",sep="_"))
 
 ```
 
-```{r}
+```{r print-strs}
 fit_uni_print(strs,"stress")
 ```
 
@@ -333,7 +336,7 @@ saveRDS(vrm, file = paste("vrm", "main_model.rds",sep="_"))
 
 ```
 
-```{r}
+```{r print-vrm}
 fit_uni_print(vrm,"vrm")
 ```
 
@@ -355,7 +358,7 @@ saveRDS(vowel, file = paste("vowel", "main_model.rds",sep="_"))
 
 ```
 
-```{r}
+```{r print-vow}
 fit_uni_print(vowel,"vowel")
 ```
 
@@ -378,7 +381,7 @@ saveRDS(anb, file = paste("anotb", "main_model.rds",sep="_"))
 
 ```
 
-```{r}
+```{r print-anb}
 fit_uni_print(anb,"anotb")
 ```
 
@@ -405,7 +408,7 @@ write.table(tab1,file="tab1.txt",row.names=F,quote=F,sep="\t")
 
 Estimate (standard error), 95 percent credibility interval, and Bayes Factor for each measure as predictor of vocabulary (in a Bayesian mixed model declaring all vocabulary measures together), as well as the same metrics for this predictor's interaction with age in that model. Null>Alt indicates that the Bayes Factor shows more support for the null than the alternative equal to the ratio provided. No predictor or interaction showed more support for the alternative than the null. 
 
-```{r}
+```{r tab4}
 # Predictor Interaction with age
 #Measure, Estimate (SE), 95% CI, BF
 
@@ -521,27 +524,38 @@ main = brm(values ~
   )
 saveRDS(main,file="main_model.rds")
 
+main_summary=summary(main)
+
+saveRDS(main_summary,file="main_model_summary.rds")
+
+main_BF = bayesfactor_parameters(main, null = 0)
+
+saveRDS(main_BF,file="main_model_bf.rds")
+
 ```
 
-```{r}
+```{r printout-full}
 
-plot(main)
+#plot(main)
 
 pp_check(main, nsamples = 1000)
 
 main
 
-saveRDS(summary(main),file="main_model_summary.rds")
+main_BF
+plot(main_BF)
 
-
-in_bf = bayesfactor_parameters(main, null = 0)
-in_bf
-plot(in_bf)
-saveRDS(in_bf,file="main_model_bf.rds")
 
 ```
 
+#### Table 6
+```{r tab6}
 
+mytab=cbind(main_summary$fixed[,"Estimate"],main_summary$fixed[,"l-95% CI"],main_summary$fixed[,"u-95% CI"],main_BF$BF)
+mytab=round(mytab,3)
+colnames(mytab)<-c("ß","LCI","HCI","BF10")
+write.table(mytab,"tab6.txt",sep="\t")
+```
 
 
 
